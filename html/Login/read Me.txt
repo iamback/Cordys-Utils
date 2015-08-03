@@ -1,0 +1,4 @@
+1)Place the cordys-login htm file in <Cordys Install Dir>/webroot/shared.
+2)Use the following URL for auto login 
+http://<ServerName>/cordys/cordys-login.htm?uname=rvairavan&password=argilityuser&org=330100
+

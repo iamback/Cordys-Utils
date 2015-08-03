@@ -1,0 +1,346 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="application/xhtml+xml; charset=iso-8859-1" />
+        <title></title>
+        <link href="style.css" rel="stylesheet" type="text/css"/>
+        <script type="text/javascript">
+                
+/**********************************************************************************************
+The Base URL Value, Refernece from Cordys Custom Login E.g.
+
+ You should be able to acess the URL using 
+ 
+ http://10.221.213.17/cordys/cordys-login.htm?uname=hm&password=cordys1&org=System
+
+ */
+var cordysBaseUrl                = "/cordys/";
+var dnString					 ="";
+var cordysAppToStartUrl          = "com/cordys/cusp/cusp.caf";
+var hideCordysUrlFromAdressBar   = false;
+
+
+var __cordysGatewayClass         = "/com.eibus.web.soap.Gateway.wcp";
+var __cordysGatewayURL           = cordysBaseUrl + __cordysGatewayClass; 
+var __cordysSAMLArtifact         = ""; 
+var __cordysSAMLArtCookieName    = ""; 
+
+var SAMLARTCOOKIENAME_START_TAG  = "<SamlArtifactCookieName>";
+var SAMLARTCOOKIENAME_END_TAG    = "</SamlArtifactCookieName>";
+var SAMLART_START_TAG            = "<samlp:AssertionArtifact xmlns:samlp=\"urn:oasis:names:tc:SAML:1.0:protocol\">";
+var SAMLART_END_TAG              = "</samlp:AssertionArtifact>";
+var cookieTemplate               = "$VALUE; path=/cordys";
+
+
+/*
+
+This Function Gets the URL Parameter
+
+*/
+
+function getUrlParams() {
+  var params = {};
+  window.location.search.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(str,key,value) {
+    params[key] = value;
+  });
+ 
+  return params;
+}
+
+
+
+
+/**********************************************************************************************
+ * function cordysCustomLogin :: Check the provided authentication info and redirect to the Cordys url.
+ * This Function is Invoked onLoad of the form
+ */
+function cordysCustomLogin()
+{
+	var params = getUrlParams();
+	determineSAMLartCookieName();
+	
+	//Get UserName
+	var userName = params.uname;
+    var password = params.password;
+	//Get the Organiszation Name
+	var orgnname=params.org;
+	//Not Used Currently
+	var serverip=params.server;
+	if (params.branch)
+		var branchNo=params.branch;
+	else branchNo="";
+		
+	dnString="?o="+orgnname+",cn=cordys,cn=CU20,o=Company.net";
+	//cordysAppToStartUrl=cordysAppToStartUrl+dnString;
+	if (branchNo != "")
+		cordysAppToStartUrl=cordysAppToStartUrl+"?branch="+branchNo;
+
+    // Display an error in case they are invalid
+    if (! validUserNamePassword(userName, password)) {
+        document.getElementById("cordysError").innerText = "Invalid username and/or password.";
+        return false;
+    } else {
+        document.getElementById("cordysError").innerText = "";
+    }
+
+    // Now redirect to the cordys url
+    var completeCordysAppUrl = "/home/"+orgnname+"?SAMLart="+__cordysSAMLArtifact;
+    document.cookie=__cordysSAMLArtCookieName+"="+__cordysSAMLArtifact+"; path=/cordys;";
+    if (hideCordysUrlFromAdressBar) {
+        // Clear the content of this page and append a new IFrame which point to the Cordys page
+        document.body.innerHTML = "";
+        
+        var loadCordysFrame = createNewIFrame(completeCordysAppUrl);
+        document.body.appendChild(loadCordysFrame);
+    } else {
+	
+
+        window.location = completeCordysAppUrl;
+		
+    }
+}
+
+/**********************************************************************************************
+ * function determineSAMLartCookieName :: Determine the SAMLart session cookie name. This way 
+ * we don't need to specify the name in the Javascript. Hence less errors.
+ */
+function determineSAMLartCookieName()
+{
+    if (__cordysSAMLArtifact != "") return; // Already did this
+
+    var requestString =    
+        "<SOAP:Envelope xmlns:SOAP=\"http://schemas.xmlsoap.org/soap/envelope/\">"+
+            "<SOAP:Body>"+
+                "<GetPreLoginInfo xmlns=\"http://schemas.cordys.com/SSO/Runtime/1.0\" />"+
+            "</SOAP:Body>"+
+        "</SOAP:Envelope>";
+    // Clear current cookie if any
+    deleteAllCookies();
+    __cordysSAMLArtifact = "";
+	
+   
+    var xmlhttp = getConnection();
+    xmlhttp.open("POST", __cordysGatewayURL, false);
+    xmlhttp.send(requestString);
+    
+  
+    __cordysSAMLArtCookieName = getSamlArtifactCookieNameFomResponse(xmlhttp.responseText);
+}
+
+// private
+function deleteCookie(cookieName)
+{
+	var cookieValue = cookieTemplate.replace("$VALUE", ";expires=Thu, 01-Jan-1970 00:00:01 GMT");
+	setCookie(cookieName, cookieValue);
+}
+function trim(string)
+{
+	if(!string) return string;
+	return string.replace(/^\s+/,'').replace(/\s+$/,'');
+}
+
+function setCookie(cookieName,cookieValue)
+{
+       document.cookie = cookieName + "=" + cookieValue;
+}
+
+// private
+function deleteAllCookies()
+{
+	var cookies = document.cookie.split(";");
+	for(var i=0; i < cookies.length; ++i)
+	{
+		var cookie = cookies[i];
+		var pair = cookie.split("=");
+		deleteCookie(trim(pair[0]));
+	}
+}
+
+
+/**********************************************************************************************
+ * function getSamlArtifactCookieNameFomResponse :: Cross browser implementation to extract the cookie name.
+ * Note that no xpath is used as we don't load the cordys libraries. 
+ */
+function getSamlArtifactCookieNameFomResponse(response) {
+    var sacnStartPos = response.indexOf(SAMLARTCOOKIENAME_START_TAG);
+    var sacnEndPos   = response.indexOf(SAMLARTCOOKIENAME_END_TAG);
+    var samlArtName  = (sacnStartPos>-1 && sacnEndPos>-1)?response.substring(sacnStartPos+SAMLARTCOOKIENAME_START_TAG.length, sacnEndPos):"";
+    return samlArtName;
+}
+
+/**********************************************************************************************
+ * function validUserNamePassword :: Checks whether the given username and password are 
+ */
+function validUserNamePassword(userName, password)
+{
+    // Encode some special characters before adding the username and password to the xml.
+    // This to prevent the xml to become invalid.
+    // Note: As this page does not load any cordys specific libraries we can not use cordys.setNodeText() here
+    userName = xmlEncode(userName);
+    password = xmlEncode(password);
+    
+    var requestString =    
+        "<SOAP:Envelope xmlns:SOAP=\"http://schemas.xmlsoap.org/soap/envelope/\">"+
+            "<SOAP:Header>"+
+                "<wsse:Security xmlns:wsse=\"http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd\">"+
+                    "<wsse:UsernameToken xmlns:wsse=\"http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd\">"+
+                        "<wsse:Username>"+userName+"</wsse:Username>"+
+                        "<wsse:Password>"+password+"</wsse:Password>"+
+                    "</wsse:UsernameToken>"+
+                "</wsse:Security>"+
+            "</SOAP:Header>"+
+            "<SOAP:Body>"+ // IssueInstant and RequestID should be different for every request
+                "<samlp:Request xmlns:samlp=\"urn:oasis:names:tc:SAML:1.0:protocol\" MajorVersion=\"1\" MinorVersion=\"1\" IssueInstant=\"2012-02-28T18:53:10Z\" RequestID=\"a2bcd8ab5a-342b-d320-aa89-c3de380cd13\">"+
+                    "<samlp:AuthenticationQuery>"+
+                        "<saml:Subject xmlns:saml=\"urn:oasis:names:tc:SAML:1.0:assertion\">"+
+                            "<saml:NameIdentifier Format=\"urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified\">"+userName+"</saml:NameIdentifier>"+
+                        "</saml:Subject>"+
+                    "</samlp:AuthenticationQuery>"+
+                "</samlp:Request>"+
+            "</SOAP:Body>"+
+        "</SOAP:Envelope>";
+    
+    
+    var xmlhttp = getConnection();
+    xmlhttp.open("POST", __cordysGatewayURL, false);
+    xmlhttp.send(requestString);
+    
+   
+    __cordysSAMLArtifact = getSAMLartifactfromReponse(xmlhttp.responseText);
+	
+	
+    return (__cordysSAMLArtifact != "");
+}
+
+/**********************************************************************************************
+ * function getSAMLartifactfromReponse , this gets the response
+ */
+function getSAMLartifactfromReponse(response) {
+    var saStartPos   = response.indexOf(SAMLART_START_TAG);
+    var saEndPos     = response.indexOf(SAMLART_END_TAG);
+    var samlArtifact = (saStartPos>-1 && saEndPos>-1)?response.substring(saStartPos+SAMLART_START_TAG.length, saEndPos):"";
+    return samlArtifact;
+}
+
+
+
+function getConnection() {
+    var xmlHttp=null;
+    try {
+        xmlHttp = new XMLHttpRequest();    
+    } catch (e) {
+        // Internet Explorer
+        try {
+            xmlHttp = new ActiveXObject("Msxml2.XMLHTTP");
+        } catch (e) {
+            xmlHttp = new ActiveXObject("Microsoft.XMLHTTP");
+        }
+    }
+    return xmlHttp;
+}
+
+/**********************************************************************************************
+ * function addParameterToURL :: Adds paremeter to the given url.
+ */
+function addParameterToURL(url, name, value)
+{
+    var questionMarkPosition = url.indexOf("?");
+    var addAmpersand = questionMarkPosition>=0 && questionMarkPosition<url.length-1 && ! /&$/.test(url);
+    var addQuestionMark = questionMarkPosition<=0;
+    if (addQuestionMark) {url += "?";}
+    if (addAmpersand) {url += "&";}
+    url += name + "=" + encodeURIComponent(value);
+    return url;
+}
+
+
+function createNewIFrame(url) {
+    // Create a new iframe to load a stub page from within cordys is loaded
+    var newIFrame = document.createElement('iframe');
+    newIFrame.setAttribute('id',"cordysIFrame");
+    newIFrame.setAttribute('height',"100%");
+    newIFrame.setAttribute('width',"100%");
+    newIFrame.setAttribute('frameborder',"no");
+    newIFrame.setAttribute('border',"no");
+    newIFrame.setAttribute('scrolling',"no");
+    newIFrame.setAttribute('src', url);
+    
+    // Fix DOCTYPE issue with cordys
+    newIFrame.style.position = "absolute";
+    newIFrame.style.top      = "0px";
+    newIFrame.style.bottom      = "0px";
+    newIFrame.style.left      = "0px";
+    newIFrame.style.right     = "0px";
+
+    return newIFrame;
+}
+
+
+function xmlEncode(string) {
+    return string.replace(/\&/g,'&'+'amp;').replace(/</g,'&'+'lt;').replace(/>/g,'&'+'gt;');
+}
+
+
+function frameBreaker() {
+	if (top.location != location) {
+		top.location.href = document.location.href ;
+	}
+}
+
+/**********************************************************************************************/
+        </script>
+    </head>
+   	 <body onLoad="frameBreaker();cordysCustomLogin()">
+	
+        <div id="mainContainer">
+            <div id="header">
+                <div id="title">
+                        
+                </div>
+            </div>
+            <div class="outer">
+                <div class="inner">
+                    <div class="float-wrap">
+                        <div id="content">
+                            <div class="contentWrap">
+         
+                                
+                                <div id="copyBelowDivToYourPage">
+                                   
+                                    <div id="cordysCustomLoginPart" style="width:240px">
+                                        <div id="cordysError" style="width:240px;margin-left:0px;border:0 solid black;color:red"></div>
+                                    </div>
+										
+										
+                                </div>
+                                
+                           
+                                
+                                <br/>
+                                <br/>
+                             
+                            </div>
+                        </div>
+                        <!-- end centered div -->
+                        <div id="menu">
+                            <div id="navcontainer">
+                            <ul id="navlist">
+                            
+                            </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="clear">
+                    </div>
+                </div>
+            </div>
+            <div id="footer-wrapper">
+                <div id="footer">
+                <p></a>
+                </div>
+            </div>
+        </div>
+	
+    </body>
+</html>
+
